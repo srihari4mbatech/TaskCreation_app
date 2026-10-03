@@ -11,7 +11,7 @@ from typing import Any
 import streamlit as st
 from claude_agent_sdk import ClaudeSDKClient
 
-from taskmgr.agent import build_options, run_turn
+from taskmgr.agent import build_options, guarded_turn
 from taskmgr.models import Status
 from taskmgr.store import TaskStore
 
@@ -38,17 +38,16 @@ def get_client() -> ClaudeSDKClient:
     return client
 
 
-def ask_agent(prompt: str) -> str:
-    """Run one agent turn and return the combined reply text."""
+def ask_agent(prompt: str, context: str = "") -> str:
+    """Run one guarded agent turn and return the reply text."""
 
     # Resolve the client here: calling it inside the coroutine would block the
     # background loop on its own connect() call and deadlock.
     client = get_client()
 
-    async def collect() -> str:
-        return "\n\n".join([chunk async for chunk in run_turn(client, prompt)])
-
-    return asyncio.run_coroutine_threadsafe(collect(), get_loop()).result()
+    return asyncio.run_coroutine_threadsafe(
+        guarded_turn(client, prompt, context), get_loop()
+    ).result()
 
 
 def render_board(store: TaskStore) -> None:
@@ -94,12 +93,13 @@ def main() -> None:
             st.markdown(entry["content"])
 
     if prompt := st.chat_input("Ask the agent to manage your tasks"):
+        last_reply = next((h["content"] for h in reversed(history) if h["role"] == "assistant"), "")
         history.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
         with st.chat_message("assistant"), st.spinner("Working..."):
             try:
-                reply = ask_agent(prompt)
+                reply = ask_agent(prompt, last_reply)
             except Exception:
                 logger.exception("Agent turn failed")
                 reply = "Sorry, the agent failed. Check the server logs and your API key."
