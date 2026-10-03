@@ -41,8 +41,12 @@ def get_client() -> ClaudeSDKClient:
 def ask_agent(prompt: str) -> str:
     """Run one agent turn and return the combined reply text."""
 
+    # Resolve the client here: calling it inside the coroutine would block the
+    # background loop on its own connect() call and deadlock.
+    client = get_client()
+
     async def collect() -> str:
-        return "\n\n".join([chunk async for chunk in run_turn(get_client(), prompt)])
+        return "\n\n".join([chunk async for chunk in run_turn(client, prompt)])
 
     return asyncio.run_coroutine_threadsafe(collect(), get_loop()).result()
 
